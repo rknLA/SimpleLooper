@@ -54,6 +54,8 @@ static void HandleInputBuffer(void *inData,
 #pragma mark - Setup
 - (void)prepareAVSession
 {
+    OSStatus oserr;
+    
     NSError *err;
     AVAudioSession *session = [AVAudioSession sharedInstance];
     
@@ -95,6 +97,25 @@ static void HandleInputBuffer(void *inData,
     [session setPreferredInputNumberOfChannels:kPreferredNumChannels error:&err];
     if (err) {
         NSLog(@"Error setting preferred input channels");
+        self.state = RKNLooperStateError;
+        return;
+    }
+    
+    // setup the asbd
+    memset(&asbd, 0, sizeof(asbd));
+    asbd.mFormatID = kAudioFormatLinearPCM;
+    UInt32 asbdSize = sizeof(asbd);
+    
+    oserr = AudioFormatGetProperty(kAudioFormatProperty_FormatInfo, 0, NULL, &asbdSize, &asbd);
+    if (oserr != noErr) {
+        NSLog(@"failed to get format property");
+        self.state = RKNLooperStateError;
+        return;
+    }
+    
+    oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, NULL, 0, &audioQueue);
+    if (oserr != noErr) {
+        NSLog(@"failed to create new input!");
         self.state = RKNLooperStateError;
         return;
     }
