@@ -8,6 +8,8 @@
 
 #import "ViewController.h"
 
+#import <AVFoundation/AVFoundation.h>
+
 @interface ViewController ()
 
 @end
@@ -17,6 +19,14 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     // Do any additional setup after loading the view, typically from a nib.
+    AVAudioSession *session = [AVAudioSession sharedInstance];
+    [session requestRecordPermission:^(BOOL granted) {
+        if (granted) {
+            NSLog(@"cool, initialize the session...");
+        } else {
+            NSLog(@", well, alert that we can't really do anything?");
+        }
+    }];
 }
 
 - (void)didReceiveMemoryWarning {
