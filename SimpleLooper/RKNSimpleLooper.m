@@ -62,12 +62,12 @@
 
 - (void)startRecording
 {
-    
+    NSLog(@"start recording");
 }
 
 - (void)stopRecording
 {
-    
+    NSLog(@"Stop recording and begin playback");
 }
 
 #pragma mark - Playback

@@ -10,6 +10,11 @@
 
 @interface ViewController : UIViewController
 
+@property (strong, nonatomic) IBOutlet UILabel *loopLabel;
+@property (strong, nonatomic) IBOutlet UIButton *recordButton;
+
+- (IBAction)beginRecording:(id)sender;
+- (IBAction)endRecording:(id)sender;
 
 @end
 

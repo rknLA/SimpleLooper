@@ -8,9 +8,12 @@
 
 #import "ViewController.h"
 
+#import "RKNSimpleLooper.h"
 #import <AVFoundation/AVFoundation.h>
 
 @interface ViewController ()
+
+@property (strong, nonatomic) RKNSimpleLooper *looper;
 
 @end
 
@@ -22,7 +25,7 @@
     AVAudioSession *session = [AVAudioSession sharedInstance];
     [session requestRecordPermission:^(BOOL granted) {
         if (granted) {
-            NSLog(@"cool, initialize the session...");
+            self.looper = [[RKNSimpleLooper alloc] init];
         } else {
             NSLog(@", well, alert that we can't really do anything?");
         }
@@ -32,6 +35,18 @@
 - (void)didReceiveMemoryWarning {
     [super didReceiveMemoryWarning];
     // Dispose of any resources that can be recreated.
+}
+
+# pragma mark - UI Handlers
+
+- (IBAction)beginRecording:(id)sender
+{
+    [self.looper startRecording];
+}
+
+- (IBAction)endRecording:(id)sender
+{
+    [self.looper stopRecording];
 }
 
 @end
