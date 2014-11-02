@@ -104,14 +104,14 @@ static void HandleInputBuffer(void *inData,
     // setup the asbd
     memset(&asbd, 0, sizeof(asbd));
     asbd.mFormatID = kAudioFormatLinearPCM;
-    UInt32 asbdSize = sizeof(asbd);
-    
-    oserr = AudioFormatGetProperty(kAudioFormatProperty_FormatInfo, 0, NULL, &asbdSize, &asbd);
-    if (oserr != noErr) {
-        NSLog(@"failed to get format property");
-        self.state = RKNLooperStateError;
-        return;
-    }
+    asbd.mSampleRate = kPreferredSampleRate;
+    asbd.mBitsPerChannel = 16;
+    asbd.mChannelsPerFrame = kPreferredNumChannels;
+    asbd.mBytesPerPacket = asbd.mBytesPerFrame = (kPreferredNumChannels * sizeof(SInt16));
+    asbd.mFramesPerPacket = 1;
+    asbd.mFormatFlags = (kLinearPCMFormatFlagIsBigEndian |
+                         kLinearPCMFormatFlagIsSignedInteger |
+                         kLinearPCMFormatFlagIsPacked);
     
     oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, NULL, 0, &audioQueue);
     if (oserr != noErr) {
