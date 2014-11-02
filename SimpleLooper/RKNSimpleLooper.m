@@ -25,6 +25,8 @@
 
 #pragma mark - AudioQueue C++
 
+static OSStatus oserr;
+
 static void HandleInputBuffer(void *inData,
                               AudioQueueRef inAQ,
                               AudioQueueBufferRef inBuffer,
@@ -33,7 +35,17 @@ static void HandleInputBuffer(void *inData,
                               const AudioStreamPacketDescription *inPacketDesc)
 {
     RKNSimpleLooper *looper = (__bridge RKNSimpleLooper *)inData;
+    NSLog(@"got some packets: %ld", (long)inNumPackets);
     [looper handleBufferInput:inBuffer];
+}
+
+static void LogIfOSErr(NSString *output)
+{
+    if (oserr != noErr) {
+        char *strErr = (char *)oserr;
+        NSString *errCode = [NSString stringWithFormat:@"%c%c%c%c", strErr[3], strErr[2], strErr[1], strErr[0]];
+        NSLog(@"OSErr: %@\t%@", errCode, output);
+    }
 }
 
 
@@ -113,11 +125,23 @@ static void HandleInputBuffer(void *inData,
                          kLinearPCMFormatFlagIsSignedInteger |
                          kLinearPCMFormatFlagIsPacked);
     
-    oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, NULL, 0, &audioQueue);
+    // hard coded, but this is what we want for now. 512 byte buffer size. like a pro.
+    inputBufferSizeInBytes = 512;
+    
+    oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, kCFRunLoopCommonModes, 0, &audioQueue);
+    LogIfOSErr(@"failed to create new audio input");
     if (oserr != noErr) {
-        NSLog(@"failed to create new input!");
         self.state = RKNLooperStateError;
         return;
+    }
+    
+    // queue up all of the input buffers
+    for (int i = 0; i < kNumAudioBuffers; i++) {
+        AudioQueueBufferRef buffer = audioQueueBuffer[i];
+        oserr = AudioQueueAllocateBuffer(audioQueue, inputBufferSizeInBytes, &audioQueueBuffer[i]);
+        LogIfOSErr(@"Failed to allocate buffer");
+        oserr = AudioQueueEnqueueBuffer(audioQueue, buffer, 0, NULL);
+        LogIfOSErr(@"Failed to enqueue buffer");
     }
 }
 
@@ -126,11 +150,15 @@ static void HandleInputBuffer(void *inData,
 - (void)startRecording
 {
     NSLog(@"start recording");
+    oserr = AudioQueueStart(audioQueue, NULL);
+    LogIfOSErr(@"error starting queue");
 }
 
 - (void)stopRecording
 {
     NSLog(@"Stop recording and begin playback");
+    oserr = AudioQueueStop(audioQueue, NO);
+    LogIfOSErr(@"error stopping queue");
 }
 
 #pragma mark - Playback
@@ -148,6 +176,12 @@ static void HandleInputBuffer(void *inData,
 - (void)seekToPosition:(CMTime)position
 {
     
+}
+
+#pragma mark - Audio Queue stuff
+- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer
+{
+    AudioQueueEnqueueBuffer(audioQueue, inBuffer, 0, NULL);
 }
 
 @end
