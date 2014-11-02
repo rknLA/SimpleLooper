@@ -33,13 +33,27 @@
 {
     NSError *err;
     AVAudioSession *session = [AVAudioSession sharedInstance];
+    
+    /* Allow mixWithOthers here in case you wanna do something crazy like loop
+     * the audio coming out of your speaker.
+     */
+    [session setCategory:AVAudioSessionCategoryPlayAndRecord
+             withOptions:(AVAudioSessionCategoryOptionDefaultToSpeaker |
+                          AVAudioSessionCategoryOptionAllowBluetooth |
+                          AVAudioSessionCategoryOptionMixWithOthers)
+                   error:&err];
+    if (err) {
+        NSLog(@"Error setting session category");
+        self.state = RKNLooperStateError;
+        return;
+    }
+    
     [session setActive:YES error:&err];
     if (err) {
         NSLog(@"Error activating session!");
         self.state = RKNLooperStateError;
         return;
     }
-    
     
     
 }
