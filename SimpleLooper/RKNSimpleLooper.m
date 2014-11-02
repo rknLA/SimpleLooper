@@ -8,12 +8,35 @@
 
 #import "RKNSimpleLooper.h"
 
-@interface RKNSimpleLooper()
+@interface RKNSimpleLooper() {
+    AudioStreamBasicDescription asbd;
+    AudioQueueRef audioQueue;
+    AudioQueueBufferRef audioQueueBuffer[kNumAudioBuffers];
+    UInt32 bufferWriteIndex;
+    UInt32 inputBufferSizeInBytes;
+}
 
 @property (nonatomic, assign) CMTime duration;
 @property (nonatomic, assign) RKNLooperState state;
 
+- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer;
+
 @end
+
+#pragma mark - AudioQueue C++
+
+static void HandleInputBuffer(void *inData,
+                              AudioQueueRef inAQ,
+                              AudioQueueBufferRef inBuffer,
+                              const AudioTimeStamp *inStartTime,
+                              UInt32 inNumPackets,
+                              const AudioStreamPacketDescription *inPacketDesc)
+{
+    RKNSimpleLooper *looper = (__bridge RKNSimpleLooper *)inData;
+    [looper handleBufferInput:inBuffer];
+}
+
+
 
 @implementation RKNSimpleLooper
 
@@ -48,6 +71,20 @@
         return;
     }
     
+    [session setPreferredSampleRate:kPreferredSampleRate error:&err];
+    if (err) {
+        NSLog(@"Error setting preferred sample rate");
+        self.state = RKNLooperStateError;
+        return;
+    }
+    
+    [session setPreferredIOBufferDuration:kPreferredBufferSizeSeconds error:&err];
+    if (err) {
+        NSLog(@"Error setting preferred buffer size");
+        self.state = RKNLooperStateError;
+        return;
+    }
+    
     [session setActive:YES error:&err];
     if (err) {
         NSLog(@"Error activating session!");
@@ -55,7 +92,12 @@
         return;
     }
     
-    
+    [session setPreferredInputNumberOfChannels:kPreferredNumChannels error:&err];
+    if (err) {
+        NSLog(@"Error setting preferred input channels");
+        self.state = RKNLooperStateError;
+        return;
+    }
 }
 
 #pragma mark - Recording
