@@ -84,6 +84,8 @@
 		0A4FAA211A0665CF00836712 /* SimpleLooper */ = {
 			isa = PBXGroup;
 			children = (
+				0A4FAA481A06CA5600836712 /* RKNSimpleLooper.h */,
+				0A4FAA491A06CA5600836712 /* RKNSimpleLooper.m */,
 				0A4FAA261A0665CF00836712 /* AppDelegate.h */,
 				0A4FAA271A0665CF00836712 /* AppDelegate.m */,
 				0A4FAA291A0665CF00836712 /* ViewController.h */,
@@ -92,8 +94,6 @@
 				0A4FAA2F1A0665CF00836712 /* Images.xcassets */,
 				0A4FAA311A0665CF00836712 /* LaunchScreen.xib */,
 				0A4FAA221A0665CF00836712 /* Supporting Files */,
-				0A4FAA481A06CA5600836712 /* RKNSimpleLooper.h */,
-				0A4FAA491A06CA5600836712 /* RKNSimpleLooper.m */,
 			);
 			path = SimpleLooper;
 			sourceTree = "<group>";
