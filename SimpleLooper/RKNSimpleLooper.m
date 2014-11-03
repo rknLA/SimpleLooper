@@ -11,13 +11,14 @@
 @interface RKNSimpleLooper() {
     AudioStreamBasicDescription asbd;
     AudioQueueRef audioQueue;
-    AudioQueueBufferRef audioQueueBuffer[kNumAudioBuffers];
+    AudioQueueBufferRef audioQueueRecordBuffer[kNumAudioBuffers];
     UInt32 bufferWriteIndex;
     UInt32 inputBufferSizeInBytes;
 }
 
 @property (nonatomic, assign) CMTime duration;
 @property (nonatomic, assign) RKNLooperState state;
+@property (strong, nonatomic) NSMutableData *loopData;
 
 - (void)handleBufferInput:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
 
@@ -57,6 +58,9 @@ static void LogIfOSErr(NSString *output)
     if (self) {
         self.state = RKNLooperStateInitializing;
         self.duration = CMTimeMake(0, 0);
+        NSUInteger bufferSize = kMaxLoopLengthSeconds * kPreferredSampleRate * kPreferredNumChannels * 2; // 2 bytes per frame
+        self.loopData = [[NSMutableData alloc] initWithCapacity:bufferSize];
+        bufferWriteIndex = 0;
         [self prepareAVSession];
     }
     return self;
@@ -136,9 +140,9 @@ static void LogIfOSErr(NSString *output)
     
     // queue up all of the input buffers
     for (int i = 0; i < kNumAudioBuffers; i++) {
-        oserr = AudioQueueAllocateBuffer(audioQueue, inputBufferSizeInBytes, &audioQueueBuffer[i]);
+        oserr = AudioQueueAllocateBuffer(audioQueue, inputBufferSizeInBytes, &audioQueueRecordBuffer[i]);
         LogIfOSErr(@"Failed to allocate buffer");
-        oserr = AudioQueueEnqueueBuffer(audioQueue, audioQueueBuffer[i], 0, NULL);
+        oserr = AudioQueueEnqueueBuffer(audioQueue, audioQueueRecordBuffer[i], 0, NULL);
         LogIfOSErr(@"Failed to enqueue buffer");
     }
 }
@@ -147,6 +151,8 @@ static void LogIfOSErr(NSString *output)
 
 - (void)startRecording
 {
+    [self.loopData resetBytesInRange:NSMakeRange(0, [self.loopData length])];
+    
     NSLog(@"start recording");
     oserr = AudioQueueStart(audioQueue, NULL);
     LogIfOSErr(@"error starting queue");
@@ -155,6 +161,8 @@ static void LogIfOSErr(NSString *output)
 - (void)stopRecording
 {
     NSLog(@"Stop recording and begin playback");
+    oserr = AudioQueueFlush(audioQueue);
+    LogIfOSErr(@"error stopping queue");
     oserr = AudioQueueStop(audioQueue, NO);
     LogIfOSErr(@"error stopping queue");
 }
@@ -181,6 +189,10 @@ static void LogIfOSErr(NSString *output)
 {
     NSLog(@"got some packets: %ld", (long)packetCount);
     NSLog(@"recording time: %f", time->mSampleTime);
+    
+    [self.loopData appendBytes:inBuffer length:packetCount];
+    bufferWriteIndex += packetCount;
+    
     AudioQueueEnqueueBuffer(audioQueue, inBuffer, 0, NULL);
 }
 
