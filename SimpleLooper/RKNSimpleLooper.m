@@ -10,17 +10,25 @@
 
 @interface RKNSimpleLooper() {
     AudioStreamBasicDescription asbd;
-    AudioQueueRef audioQueue;
-    AudioQueueBufferRef audioQueueRecordBuffer[kNumAudioBuffers];
+    AudioQueueRef aqRecordQueue;
+    AudioQueueBufferRef aqRecordBuffer[kNumAudioBuffers];
     UInt32 bufferWriteIndex;
+    
+    AudioQueueRef aqPlaybackQueue;
+    AudioQueueBufferRef aqPlaybackBuffer[kNumAudioBuffers];
+    UInt32 bufferReadIndex;
+    
     UInt32 inputBufferSizeInBytes;
+    
+    char * loopData;
+    UInt32 loopLengthInBytes;
 }
 
 @property (nonatomic, assign) CMTime duration;
 @property (nonatomic, assign) RKNLooperState state;
-@property (strong, nonatomic) NSMutableData *loopData;
 
-- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
+- (void)recordBuffer:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
+- (void)getNextPlaybackBuffer:(AudioQueueBufferRef)inBuffer;
 
 @end
 
@@ -36,7 +44,15 @@ static void HandleInputBuffer(void *inData,
                               const AudioStreamPacketDescription *inPacketDesc)
 {
     RKNSimpleLooper *looper = (__bridge RKNSimpleLooper *)inData;
-    [looper handleBufferInput:inBuffer atTime:inStartTime packetCount:inNumPackets];
+    [looper recordBuffer:inBuffer atTime:inStartTime packetCount:inNumPackets];
+}
+
+static void HandleOutputBuffer(void *inData,
+                               AudioQueueRef inAQ,
+                               AudioQueueBufferRef inBuffer)
+{
+    RKNSimpleLooper *looper = (__bridge RKNSimpleLooper *)inData;
+    [looper getNextPlaybackBuffer:inBuffer];
 }
 
 static void LogIfOSErr(NSString *output)
@@ -59,11 +75,17 @@ static void LogIfOSErr(NSString *output)
         self.state = RKNLooperStateInitializing;
         self.duration = CMTimeMake(0, 0);
         NSUInteger bufferSize = kMaxLoopLengthSeconds * kPreferredSampleRate * kPreferredNumChannels * 2; // 2 bytes per frame
-        self.loopData = [[NSMutableData alloc] initWithCapacity:bufferSize];
+        loopData = calloc(bufferSize, sizeof(char *));
+        loopLengthInBytes = 0;
         bufferWriteIndex = 0;
         [self prepareAVSession];
     }
     return self;
+}
+
+- (void)dealloc
+{
+    free(loopData);
 }
 
 #pragma mark - Setup
@@ -131,7 +153,7 @@ static void LogIfOSErr(NSString *output)
     // hard coded, but this is what we want for now. 512 byte buffer size. like a pro.
     inputBufferSizeInBytes = 512;
     
-    oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, kCFRunLoopCommonModes, 0, &audioQueue);
+    oserr = AudioQueueNewInput(&asbd, HandleInputBuffer, (__bridge void *)self, NULL, kCFRunLoopCommonModes, 0, &aqRecordQueue);
     LogIfOSErr(@"failed to create new audio input");
     if (oserr != noErr) {
         self.state = RKNLooperStateError;
@@ -140,38 +162,58 @@ static void LogIfOSErr(NSString *output)
     
     // queue up all of the input buffers
     for (int i = 0; i < kNumAudioBuffers; i++) {
-        oserr = AudioQueueAllocateBuffer(audioQueue, inputBufferSizeInBytes, &audioQueueRecordBuffer[i]);
+        oserr = AudioQueueAllocateBuffer(aqRecordQueue, inputBufferSizeInBytes, &aqRecordBuffer[i]);
         LogIfOSErr(@"Failed to allocate buffer");
-        oserr = AudioQueueEnqueueBuffer(audioQueue, audioQueueRecordBuffer[i], 0, NULL);
+        oserr = AudioQueueEnqueueBuffer(aqRecordQueue, aqRecordBuffer[i], 0, NULL);
         LogIfOSErr(@"Failed to enqueue buffer");
     }
+    
+    
+    oserr = AudioQueueNewOutput(&asbd, HandleOutputBuffer, (__bridge void *)self, CFRunLoopGetCurrent(), kCFRunLoopCommonModes, 0, &aqPlaybackQueue);
+    LogIfOSErr(@"failed to create new audio output");
 }
 
 #pragma mark - Recording
 
 - (void)startRecording
 {
-    [self.loopData resetBytesInRange:NSMakeRange(0, [self.loopData length])];
+    // clear the loop buffer;
+    memset(loopData, 0, loopLengthInBytes);
     
     NSLog(@"start recording");
-    oserr = AudioQueueStart(audioQueue, NULL);
+    oserr = AudioQueueStart(aqRecordQueue, NULL);
     LogIfOSErr(@"error starting queue");
 }
 
 - (void)stopRecording
 {
     NSLog(@"Stop recording and begin playback");
-    oserr = AudioQueueFlush(audioQueue);
+    oserr = AudioQueueFlush(aqRecordQueue);
     LogIfOSErr(@"error stopping queue");
-    oserr = AudioQueueStop(audioQueue, NO);
+    oserr = AudioQueueStop(aqRecordQueue, NO);
     LogIfOSErr(@"error stopping queue");
+    
+    [self preparePlayback];
+    [self startPlayback];
 }
 
 #pragma mark - Playback
 
+- (void)preparePlayback
+{
+    for (int i = 0; i < kNumAudioBuffers; i++) {
+        oserr = AudioQueueAllocateBuffer(aqPlaybackQueue, inputBufferSizeInBytes, &aqPlaybackBuffer[i]);
+        LogIfOSErr(@"Failed to allocate buffer");
+        
+        [self getNextPlaybackBuffer:aqPlaybackBuffer[i]];
+    }
+}
+
 - (void)startPlayback
 {
-    
+    bufferReadIndex = 0;
+    oserr = AudioQueueStart(aqPlaybackQueue, NULL);
+    LogIfOSErr(@"failed to start playback queue");
 }
 
 - (void)pausePlayback
@@ -185,15 +227,30 @@ static void LogIfOSErr(NSString *output)
 }
 
 #pragma mark - Audio Queue stuff
-- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
+- (void)recordBuffer:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount
 {
-    NSLog(@"got some packets: %ld", (long)packetCount);
+    NSLog(@"got some packets: %ld", (long)inBuffer->mAudioDataByteSize);
     NSLog(@"recording time: %f", time->mSampleTime);
     
-    [self.loopData appendBytes:inBuffer length:packetCount];
-    bufferWriteIndex += packetCount;
+    memcpy(&loopData[bufferWriteIndex], inBuffer->mAudioData, inBuffer->mAudioDataByteSize);
+    bufferWriteIndex += inBuffer->mAudioDataByteSize;
     
-    AudioQueueEnqueueBuffer(audioQueue, inBuffer, 0, NULL);
+    AudioQueueEnqueueBuffer(aqRecordQueue, inBuffer, 0, NULL);
 }
+
+- (void)getNextPlaybackBuffer:(AudioQueueBufferRef)inBuffer
+{
+    NSLog(@"do something with inbuffer?");
+    UInt32 bytesToFill = inBuffer->mAudioDataBytesCapacity;
+    if (bufferReadIndex + bytesToFill > loopLengthInBytes) {
+        //only enqueue the end of the buffer
+        bytesToFill = loopLengthInBytes - bufferReadIndex;
+    }
+    
+    memcpy(inBuffer->mAudioData, &loopData[bufferReadIndex], bytesToFill);
+    inBuffer->mAudioDataByteSize = bytesToFill;
+    bufferReadIndex = (bufferReadIndex + bytesToFill) % loopLengthInBytes;
+}
+
 
 @end
