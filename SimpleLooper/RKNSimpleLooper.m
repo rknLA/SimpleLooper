@@ -19,7 +19,7 @@
 @property (nonatomic, assign) CMTime duration;
 @property (nonatomic, assign) RKNLooperState state;
 
-- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer;
+- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
 
 @end
 
@@ -35,8 +35,7 @@ static void HandleInputBuffer(void *inData,
                               const AudioStreamPacketDescription *inPacketDesc)
 {
     RKNSimpleLooper *looper = (__bridge RKNSimpleLooper *)inData;
-    NSLog(@"got some packets: %ld", (long)inNumPackets);
-    [looper handleBufferInput:inBuffer];
+    [looper handleBufferInput:inBuffer atTime:inStartTime packetCount:inNumPackets];
 }
 
 static void LogIfOSErr(NSString *output)
@@ -137,10 +136,9 @@ static void LogIfOSErr(NSString *output)
     
     // queue up all of the input buffers
     for (int i = 0; i < kNumAudioBuffers; i++) {
-        AudioQueueBufferRef buffer = audioQueueBuffer[i];
         oserr = AudioQueueAllocateBuffer(audioQueue, inputBufferSizeInBytes, &audioQueueBuffer[i]);
         LogIfOSErr(@"Failed to allocate buffer");
-        oserr = AudioQueueEnqueueBuffer(audioQueue, buffer, 0, NULL);
+        oserr = AudioQueueEnqueueBuffer(audioQueue, audioQueueBuffer[i], 0, NULL);
         LogIfOSErr(@"Failed to enqueue buffer");
     }
 }
@@ -179,8 +177,10 @@ static void LogIfOSErr(NSString *output)
 }
 
 #pragma mark - Audio Queue stuff
-- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer
+- (void)handleBufferInput:(AudioQueueBufferRef)inBuffer atTime:(const AudioTimeStamp *)time packetCount:(UInt32)packetCount;
 {
+    NSLog(@"got some packets: %ld", (long)packetCount);
+    NSLog(@"recording time: %f", time->mSampleTime);
     AudioQueueEnqueueBuffer(audioQueue, inBuffer, 0, NULL);
 }
 
