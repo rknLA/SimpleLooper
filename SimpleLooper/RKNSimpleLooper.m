@@ -22,6 +22,7 @@
     
     char * loopData;
     UInt32 loopLengthInBytes;
+    BOOL shouldKillRunLoop;
 }
 
 @property (nonatomic, assign) CMTime duration;
@@ -78,6 +79,7 @@ static void LogIfOSErr(NSString *output)
         loopData = calloc(bufferSize, sizeof(char *));
         loopLengthInBytes = 0;
         bufferWriteIndex = 0;
+        shouldKillRunLoop = NO;
         [self prepareAVSession];
     }
     return self;
@@ -214,6 +216,21 @@ static void LogIfOSErr(NSString *output)
     bufferReadIndex = 0;
     oserr = AudioQueueStart(aqPlaybackQueue, NULL);
     LogIfOSErr(@"failed to start playback queue");
+    
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        do {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode,
+                               0.25,
+                               false);
+        } while (!shouldKillRunLoop);
+        
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1, false);
+    });
+}
+
+- (void)runRunLoop
+{
+    
 }
 
 - (void)pausePlayback
@@ -235,6 +252,8 @@ static void LogIfOSErr(NSString *output)
     memcpy(&loopData[bufferWriteIndex], inBuffer->mAudioData, inBuffer->mAudioDataByteSize);
     bufferWriteIndex += inBuffer->mAudioDataByteSize;
     
+    loopLengthInBytes = bufferWriteIndex - 1;
+    
     AudioQueueEnqueueBuffer(aqRecordQueue, inBuffer, 0, NULL);
 }
 
@@ -250,6 +269,8 @@ static void LogIfOSErr(NSString *output)
     memcpy(inBuffer->mAudioData, &loopData[bufferReadIndex], bytesToFill);
     inBuffer->mAudioDataByteSize = bytesToFill;
     bufferReadIndex = (bufferReadIndex + bytesToFill) % loopLengthInBytes;
+        
+    AudioQueueEnqueueBuffer(aqPlaybackQueue, inBuffer, 0, NULL);
 }
 
 
